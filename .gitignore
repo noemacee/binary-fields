@@ -1,0 +1,38 @@
+# --- Rust build artifacts ---
+/target/
+
+# Remove this ignore if you want to commit Cargo.lock.
+# For binaries/apps, Cargo.lock is usually committed.
+# For libraries, it's commonly ignored.
+Cargo.lock
+
+# --- Rust tooling / IDE helper output ---
+**/*.rs.bk
+**/*.pdb
+rustfmt.toml.bak
+
+# --- Environment / local config ---
+.env
+.env.local
+.env.*.local
+
+# --- macOS ---
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+.Spotlight-V100
+.Trashes
+
+# --- Editor / IDE ---
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# --- Logs / temp ---
+*.log
+*.tmp
+*.temp
