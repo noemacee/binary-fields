@@ -6,6 +6,41 @@ use crate::GF2_128;
 /// is what we XOR with when the high bit (z^128) spills over.
 const R: u64 = 0x87;
 
+/// Algorithm 2.39 — Polynomial squaring via byte expansion table.
+/// Precomputed table T: for each byte d, T[d] is the 16-bit expansion
+/// obtained by inserting a 0 bit between each bit of d.
+/// T(d) = (0,d7,0,d6,0,d5,0,d4,0,d3,0,d2,0,d1,0,d0)
+const SQUARE_TABLE: [u16; 256] = {
+    let mut table = [0u16; 256];
+    let mut d = 0usize;
+    while d < 256 {
+        let mut result = 0u16;
+        let mut i = 0;
+        while i < 8 {
+            if (d >> i) & 1 == 1 {
+                result |= 1 << (2 * i);
+            }
+            i += 1;
+        }
+        table[d] = result;
+        d += 1;
+    }
+    table
+};
+
+/// Expand a single 64-bit word into a 128-bit result by inserting
+/// a 0 bit between each pair of consecutive bits.
+/// Each byte is expanded via SQUARE_TABLE to a 16-bit value.
+fn expand_word(w: u64) -> u128 {
+    let mut result = 0u128;
+    for i in 0..8 {
+        let byte = (w >> (i * 8)) as u8;
+        let expanded = SQUARE_TABLE[byte as usize] as u128;
+        result |= expanded << (i * 16);
+    }
+    result
+}
+
 impl GF2_128 {
     /// Algorithm 2.32 — Addition in GF(2^128)
     /// Addition of field elements is performed bitwise (XOR), word by word.
@@ -67,6 +102,23 @@ impl GF2_128 {
         }
 
         c
+    }
+
+    /// Algorithm 2.39 — Squaring in GF(2^128).
+    /// Expands bits then reduces mod f(z) via Algorithm 2.40.
+    pub fn square(self) -> Self {
+        // Step 1: expand each word into 128 bits
+        // A[0] (low word) expands into the low 128 bits of c
+        // A[1] (high word) expands into the high 128 bits of c
+        let lo = expand_word(self.0[0]);
+        let hi = expand_word(self.0[1]);
+
+        // Assemble into [u64; 4] intermediate
+        let c: [u64; 4] = [lo as u64, (lo >> 64) as u64, hi as u64, (hi >> 64) as u64];
+
+        // Step 2: reduce mod f(z)
+        let reduced = crate::reduce::reduce(c);
+        GF2_128::new(reduced[0], reduced[1])
     }
 }
 
@@ -149,5 +201,29 @@ mod tests {
         let z127 = GF2_128::new(0, 1u64 << 63);
         let z1 = GF2_128::new(0b10, 0);
         assert_eq!(z127.mul(z1), GF2_128::new(0x87, 0));
+    }
+
+    #[test]
+    fn square_zero_is_zero() {
+        assert_eq!(GF2_128::zero().square(), GF2_128::zero());
+    }
+
+    #[test]
+    fn square_one_is_one() {
+        assert_eq!(GF2_128::one().square(), GF2_128::one());
+    }
+
+    #[test]
+    fn square_consistent_with_mul() {
+        let a = GF2_128::new(0x1234, 0x5678);
+        assert_eq!(a.square(), a.mul(a));
+    }
+
+    #[test]
+    fn square_z_is_z2() {
+        // z^2 is just bit 2 set
+        let z = GF2_128::new(0b10, 0);
+        let z2 = GF2_128::new(0b100, 0);
+        assert_eq!(z.square(), z2);
     }
 }

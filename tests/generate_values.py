@@ -18,3 +18,19 @@ for a_val, b_val in pairs:
     print(f"  mul = {hex(int(a * b))}")
     print(f"  inv = {hex(int(a ** -1))}")
     print()
+
+
+a = GF(0xDEADBEEFCAFE1234)
+print(f"pow(a, 0)  = {hex(int(a ** 0))}")
+print(f"pow(a, 1)  = {hex(int(a ** 1))}")
+print(f"pow(a, 3)  = {hex(int(a ** 3))}")
+print(f"pow(a, 17) = {hex(int(a ** 17))}")
+
+b = GF(0x1234567890ABCDEF1234567890ABCDEF)
+print(f"pow(b, 5)  = {hex(int(b ** 5))}")
+
+
+a = GF(0xDEADBEEFCAFE1234)
+b = GF(0x1234567890ABCDEF1234567890ABCDEF)
+print(f"square(a) = {hex(int(a ** 2))}")
+print(f"square(b) = {hex(int(b ** 2))}")
