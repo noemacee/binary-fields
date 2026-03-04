@@ -117,7 +117,7 @@ impl GF2_128 {
         let c: [u64; 4] = [lo as u64, (lo >> 64) as u64, hi as u64, (hi >> 64) as u64];
 
         // Step 2: reduce mod f(z)
-        let reduced = crate::reduce::reduce(c);
+        let reduced = crate::reduce::reduce_128_gf2p128(c);
         GF2_128::new(reduced[0], reduced[1])
     }
 }
