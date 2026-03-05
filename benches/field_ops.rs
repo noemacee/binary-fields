@@ -30,5 +30,30 @@ fn bench_pow(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, bench_mul, bench_square, bench_invert, bench_pow);
+fn bench_mul_comb(c: &mut Criterion) {
+    let a = GF2_128::new(0xdeadbeefcafe1234, 0xabcd1234);
+    let b = GF2_128::new(0x1234567890abcdef, 0xfedcba9876543210);
+
+    c.bench_function("mul_comb", |bencher| {
+        bencher.iter(|| black_box(a).mul_comb(black_box(b)))
+    });
+}
+
+fn bench_invert_binary(c: &mut Criterion) {
+    let a = GF2_128::new(0xdeadbeefcafe1234, 0xabcd1234);
+
+    c.bench_function("invert_binary", |bencher| {
+        bencher.iter(|| black_box(a).invert_binary())
+    });
+}
+
+criterion_group!(
+    benches,
+    bench_mul,
+    bench_square,
+    bench_invert,
+    bench_pow,
+    bench_mul_comb,
+    bench_invert_binary
+);
 criterion_main!(benches);

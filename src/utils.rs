@@ -28,7 +28,7 @@ impl GF2_128 {
 
         while exp > 0 {
             if exp & 1 == 1 {
-                result = result.mul(base);
+                result = result.mul_comb(base);
             }
             base = base.square();
             exp >>= 1;

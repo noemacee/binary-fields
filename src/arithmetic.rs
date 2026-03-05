@@ -120,6 +120,82 @@ impl GF2_128 {
         let reduced = crate::reduce::reduce_128_gf2p128(c);
         GF2_128::new(reduced[0], reduced[1])
     }
+
+    /// Algorithm 2.34 — Right-to-left comb method for polynomial multiplication.
+    ///
+    /// # Difference from Algorithm 2.33 (current mul)
+    ///
+    /// Algorithm 2.33 processes A one BIT at a time from right to left:
+    ///   for each bit i of A (0..127):
+    ///     if bit i is set: C ^= B
+    ///     B <- B * z
+    /// That's 127 single-bit shifts of B, each touching 2 words.
+    ///
+    /// Algorithm 2.34 instead groups bits by their position WITHIN a word (column k),
+    /// then processes all words of A for that column in the inner loop.
+    /// B is still shifted one bit per outer iteration, but there are only W=64
+    /// outer iterations instead of m=128, because the inner loop handles the
+    /// word-offset positioning via C{j} (adding B into C starting at word j).
+    ///
+    /// # The C{j} notation
+    ///
+    /// C{j} means "the array C viewed starting at index j". So adding B into C{j}
+    /// means: C[j] ^= B[0], C[j+1] ^= B[1], C[j+2] ^= B[2].
+    /// This is how the word offset z^(W*j) is handled without an actual shift.
+    ///
+    /// # Cost comparison
+    ///
+    /// Algorithm 2.33: 127 B-shifts (2 words each) + up to 128 XOR-adds (2 words each)
+    /// Algorithm 2.34:  63 B-shifts (3 words each) + up to 128 XOR-adds (3 words each)
+    ///
+    /// The shift count drops from 127 to 63 because W=64 outer iterations
+    /// replace m=128 bit iterations. The XOR-add count stays the same (one per
+    /// set bit of A) but each touches 3 words instead of 2 due to B's growth.
+    /// Net effect: fewer iterations, better pipeline behavior, explicit reduction
+    /// at the end via reduce_128_gf2p128.
+    ///
+    /// # Parameters
+    ///
+    /// m = 128, W = 64, t = 2.
+    /// B grows to at most t+1 = 3 words during the shifts.
+    /// C accumulates as [u64; 4] (degree ≤ 2m-2 = 254), then reduced.
+    pub fn mul_comb(self, rhs: Self) -> Self {
+        // B stored as 3 words: the product B*z^k grows beyond 2 words as k increases.
+        // Starts as [b.lo, b.hi, 0].
+        let mut b = [rhs.0[0], rhs.0[1], 0u64];
+
+        // C accumulates the unreduced product, needs 4 words (degree up to 254).
+        let mut c = [0u64; 4];
+
+        // Outer loop: k from 0 to W-1 = 0 to 63.
+        // On iteration k, B holds rhs * z^k.
+        for k in 0..64usize {
+            // Inner loop: j = 0, 1 (t = 2 words in A).
+            // If bit k of A[j] is set, add B into C starting at word j.
+            // This accounts for the z^(64j) positional weight of A[j].
+            for j in 0..2usize {
+                if (self.0[j] >> k) & 1 == 1 {
+                    c[j] ^= b[0];
+                    c[j + 1] ^= b[1];
+                    c[j + 2] ^= b[2];
+                }
+            }
+
+            // B <- B * z (shift B left by 1 bit across 3 words), except after last iteration.
+            // Carry bit 63 of word i into bit 0 of word i+1.
+            if k != 63 {
+                let carry_01 = b[0] >> 63;
+                let carry_12 = b[1] >> 63;
+                b[0] <<= 1;
+                b[1] = (b[1] << 1) | carry_01;
+                b[2] = (b[2] << 1) | carry_12;
+            }
+        }
+
+        // Reduce the 4-word intermediate mod f(z) using the fast word-level reduction.
+        let r = crate::reduce::reduce_128_gf2p128(c);
+        GF2_128::new(r[0], r[1])
+    }
 }
 
 #[cfg(test)]
@@ -225,5 +301,31 @@ mod tests {
         let z = GF2_128::new(0b10, 0);
         let z2 = GF2_128::new(0b100, 0);
         assert_eq!(z.square(), z2);
+    }
+
+    #[test]
+    fn mul_comb_agrees_with_mul() {
+        let pairs = [
+            (GF2_128::new(0x1234, 0), GF2_128::new(0x5678, 0)),
+            (
+                GF2_128::new(0xdeadbeefcafe1234, 0),
+                GF2_128::new(0xabcd1234, 0),
+            ),
+            (GF2_128::new(0, 1u64 << 63), GF2_128::new(0b10, 0)),
+            (
+                GF2_128::new(0xffffffffffffffff, 0xffffffffffffffff),
+                GF2_128::one(),
+            ),
+        ];
+        for (a, b) in pairs {
+            assert_eq!(a.mul_comb(b), a.mul(b), "mismatch for {:?} * {:?}", a, b);
+        }
+    }
+
+    #[test]
+    fn mul_comb_reduction_happens() {
+        let z127 = GF2_128::new(0, 1u64 << 63);
+        let z1 = GF2_128::new(0b10, 0);
+        assert_eq!(z127.mul_comb(z1), GF2_128::new(0x87, 0));
     }
 }
