@@ -44,13 +44,13 @@ fn expand_word(w: u64) -> u128 {
 impl GF2_128 {
     /// Algorithm 2.32 — Addition in GF(2^128)
     /// Addition of field elements is performed bitwise (XOR), word by word.
-    pub fn add(self, rhs: Self) -> Self {
+    pub fn add_2_32(self, rhs: Self) -> Self {
         GF2_128::new(self.0[0] ^ rhs.0[0], self.0[1] ^ rhs.0[1])
     }
 
     /// Subtraction is identical to addition in characteristic 2.
     pub fn sub(self, rhs: Self) -> Self {
-        self.add(rhs)
+        self.add_2_32(rhs)
     }
 
     /// Negation is the identity in characteristic 2.
@@ -82,7 +82,7 @@ impl GF2_128 {
 
     /// Algorithm 2.33 — Right-to-left shift-and-add field multiplication.
     /// Computes a(z) * b(z) mod f(z).
-    pub fn mul(self, rhs: Self) -> Self {
+    pub fn mul_2_33(self, rhs: Self) -> Self {
         let a = self;
         let mut b = rhs;
         let mut c = if a.0[0] & 1 == 1 {
@@ -97,7 +97,7 @@ impl GF2_128 {
             let word = i / 64;
             let bit = i % 64;
             if (a.0[word] >> bit) & 1 == 1 {
-                c = c.add(b);
+                c = c.add_2_32(b);
             }
         }
 
@@ -106,7 +106,7 @@ impl GF2_128 {
 
     /// Algorithm 2.39 — Squaring in GF(2^128).
     /// Expands bits then reduces mod f(z) via Algorithm 2.40.
-    pub fn square(self) -> Self {
+    pub fn square_2_39(self) -> Self {
         // Step 1: expand each word into 128 bits
         // A[0] (low word) expands into the low 128 bits of c
         // A[1] (high word) expands into the high 128 bits of c
@@ -117,7 +117,7 @@ impl GF2_128 {
         let c: [u64; 4] = [lo as u64, (lo >> 64) as u64, hi as u64, (hi >> 64) as u64];
 
         // Step 2: reduce mod f(z)
-        let reduced = crate::reduce::reduce_128_gf2p128(c);
+        let reduced = crate::reduce::reduce_2_41(c);
         GF2_128::new(reduced[0], reduced[1])
     }
 
@@ -159,7 +159,7 @@ impl GF2_128 {
     /// m = 128, W = 64, t = 2.
     /// B grows to at most t+1 = 3 words during the shifts.
     /// C accumulates as [u64; 4] (degree ≤ 2m-2 = 254), then reduced.
-    pub fn mul_comb(self, rhs: Self) -> Self {
+    pub fn mul_2_34(self, rhs: Self) -> Self {
         // B stored as 3 words: the product B*z^k grows beyond 2 words as k increases.
         // Starts as [b.lo, b.hi, 0].
         let mut b = [rhs.0[0], rhs.0[1], 0u64];
@@ -193,7 +193,7 @@ impl GF2_128 {
         }
 
         // Reduce the 4-word intermediate mod f(z) using the fast word-level reduction.
-        let r = crate::reduce::reduce_128_gf2p128(c);
+        let r = crate::reduce::reduce_2_41(c);
         GF2_128::new(r[0], r[1])
     }
 }
@@ -205,27 +205,27 @@ mod tests {
     #[test]
     fn add_zero_is_identity() {
         let a = GF2_128::new(0xdeadbeefcafe1234, 0xabcd);
-        assert_eq!(a.add(GF2_128::zero()), a);
+        assert_eq!(a.add_2_32(GF2_128::zero()), a);
     }
 
     #[test]
     fn add_self_is_zero() {
         let a = GF2_128::new(0xdeadbeefcafe1234, 0xabcd);
-        assert_eq!(a.add(a), GF2_128::zero());
+        assert_eq!(a.add_2_32(a), GF2_128::zero());
     }
 
     #[test]
     fn add_is_commutative() {
         let a = GF2_128::new(0x1234, 0x5678);
         let b = GF2_128::new(0xabcd, 0xef01);
-        assert_eq!(a.add(b), b.add(a));
+        assert_eq!(a.add_2_32(b), b.add_2_32(a));
     }
 
     #[test]
     fn sub_equals_add() {
         let a = GF2_128::new(0x1234, 0x5678);
         let b = GF2_128::new(0xabcd, 0xef01);
-        assert_eq!(a.sub(b), a.add(b));
+        assert_eq!(a.sub(b), a.add_2_32(b));
     }
 
     #[test]
@@ -237,20 +237,20 @@ mod tests {
     #[test]
     fn mul_by_one_is_identity() {
         let a = GF2_128::new(0xdeadbeef, 0xcafe);
-        assert_eq!(a.mul(GF2_128::one()), a);
+        assert_eq!(a.mul_2_33(GF2_128::one()), a);
     }
 
     #[test]
     fn mul_by_zero_is_zero() {
         let a = GF2_128::new(0xdeadbeef, 0xcafe);
-        assert_eq!(a.mul(GF2_128::zero()), GF2_128::zero());
+        assert_eq!(a.mul_2_33(GF2_128::zero()), GF2_128::zero());
     }
 
     #[test]
     fn mul_is_commutative() {
         let a = GF2_128::new(0x1234, 0x5678);
         let b = GF2_128::new(0xabcd, 0xef01);
-        assert_eq!(a.mul(b), b.mul(a));
+        assert_eq!(a.mul_2_33(b), b.mul_2_33(a));
     }
 
     #[test]
@@ -258,7 +258,7 @@ mod tests {
         let a = GF2_128::new(0x1234, 0x5678);
         let b = GF2_128::new(0xabcd, 0xef01);
         let c = GF2_128::new(0xdead, 0xbeef);
-        assert_eq!(a.mul(b.add(c)), a.mul(b).add(a.mul(c)));
+        assert_eq!(a.mul_2_33(b.add_2_32(c)), a.mul_2_33(b).add_2_32(a.mul_2_33(c)));
     }
 
     #[test]
@@ -267,7 +267,7 @@ mod tests {
         // i.e. element 0b10 * element 0b10 = element 0b100
         let x = GF2_128::new(0b10, 0);
         let x_squared = GF2_128::new(0b100, 0);
-        assert_eq!(x.mul(x), x_squared);
+        assert_eq!(x.mul_2_33(x), x_squared);
     }
 
     #[test]
@@ -276,23 +276,23 @@ mod tests {
         // z^127 * z = z^128 = z^7 + z^2 + z + 1 = 0x87
         let z127 = GF2_128::new(0, 1u64 << 63);
         let z1 = GF2_128::new(0b10, 0);
-        assert_eq!(z127.mul(z1), GF2_128::new(0x87, 0));
+        assert_eq!(z127.mul_2_33(z1), GF2_128::new(0x87, 0));
     }
 
     #[test]
     fn square_zero_is_zero() {
-        assert_eq!(GF2_128::zero().square(), GF2_128::zero());
+        assert_eq!(GF2_128::zero().square_2_39(), GF2_128::zero());
     }
 
     #[test]
     fn square_one_is_one() {
-        assert_eq!(GF2_128::one().square(), GF2_128::one());
+        assert_eq!(GF2_128::one().square_2_39(), GF2_128::one());
     }
 
     #[test]
     fn square_consistent_with_mul() {
         let a = GF2_128::new(0x1234, 0x5678);
-        assert_eq!(a.square(), a.mul(a));
+        assert_eq!(a.square_2_39(), a.mul_2_33(a));
     }
 
     #[test]
@@ -300,7 +300,7 @@ mod tests {
         // z^2 is just bit 2 set
         let z = GF2_128::new(0b10, 0);
         let z2 = GF2_128::new(0b100, 0);
-        assert_eq!(z.square(), z2);
+        assert_eq!(z.square_2_39(), z2);
     }
 
     #[test]
@@ -318,7 +318,7 @@ mod tests {
             ),
         ];
         for (a, b) in pairs {
-            assert_eq!(a.mul_comb(b), a.mul(b), "mismatch for {:?} * {:?}", a, b);
+            assert_eq!(a.mul_2_34(b), a.mul_2_33(b), "mismatch for {:?} * {:?}", a, b);
         }
     }
 
@@ -326,6 +326,6 @@ mod tests {
     fn mul_comb_reduction_happens() {
         let z127 = GF2_128::new(0, 1u64 << 63);
         let z1 = GF2_128::new(0b10, 0);
-        assert_eq!(z127.mul_comb(z1), GF2_128::new(0x87, 0));
+        assert_eq!(z127.mul_2_34(z1), GF2_128::new(0x87, 0));
     }
 }

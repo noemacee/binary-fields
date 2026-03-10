@@ -17,7 +17,7 @@ impl GF2_128 {
     /// Exponentiation by square-and-multiply.
     /// Computes a^n in GF(2^128).
     /// a^0 = 1 for any a, including zero.
-    pub fn pow(self, n: u128) -> Self {
+    pub fn pow_rtl_2_34_2_39(self, n: u128) -> Self {
         if n == 0 {
             return GF2_128::one();
         }
@@ -28,9 +28,9 @@ impl GF2_128 {
 
         while exp > 0 {
             if exp & 1 == 1 {
-                result = result.mul_comb(base);
+                result = result.mul_2_34(base);
             }
-            base = base.square();
+            base = base.square_2_39();
             exp >>= 1;
         }
 
@@ -59,19 +59,19 @@ mod tests {
     #[test]
     fn pow_zero_is_one() {
         let a = GF2_128::new(0xdeadbeef, 0xcafe);
-        assert_eq!(a.pow(0), GF2_128::one());
+        assert_eq!(a.pow_rtl_2_34_2_39(0), GF2_128::one());
     }
 
     #[test]
     fn pow_one_is_self() {
         let a = GF2_128::new(0xdeadbeef, 0xcafe);
-        assert_eq!(a.pow(1), a);
+        assert_eq!(a.pow_rtl_2_34_2_39(1), a);
     }
 
     #[test]
     fn pow_two_is_mul_self() {
         let a = GF2_128::new(0x1234, 0x5678);
-        assert_eq!(a.pow(2), a.mul(a));
+        assert_eq!(a.pow_rtl_2_34_2_39(2), a.mul_2_33(a));
     }
 
     #[test]
@@ -80,7 +80,7 @@ mod tests {
         // This is the strongest correctness check for the whole field
         let a = GF2_128::new(0xdeadbeefcafe1234, 0xabcd1234);
         let order = u128::MAX; // 2^128 - 1
-        assert_eq!(a.pow(order), GF2_128::one());
+        assert_eq!(a.pow_rtl_2_34_2_39(order), GF2_128::one());
     }
 
     #[test]
@@ -88,6 +88,6 @@ mod tests {
         // a^(2^128 - 2) should equal a^{-1}
         let a = GF2_128::new(0x1234, 0x5678);
         let exp = u128::MAX - 1; // 2^128 - 2
-        assert_eq!(a.pow(exp), a.invert().unwrap());
+        assert_eq!(a.pow_rtl_2_34_2_39(exp), a.invert_2_48().unwrap());
     }
 }

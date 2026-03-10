@@ -61,7 +61,7 @@ fn to_field(a: [u64; 3]) -> GF2_128 {
 impl GF2_128 {
     /// Algorithm 2.48 — Inversion in GF(2^128) using the Extended Euclidean Algorithm.
     /// Returns None if self is zero (zero has no inverse).
-    pub fn invert(self) -> Option<Self> {
+    pub fn invert_2_48(self) -> Option<Self> {
         if self.is_zero() {
             return None;
         }
@@ -128,7 +128,7 @@ impl GF2_128 {
     ///     term 1, g + f has bit 0 = 0), then (g + f)/z = (g + f) >> 1
     ///
     /// This keeps g1, g2 in the field (degree < 128, 2 words) throughout.
-    pub fn invert_binary(self) -> Option<Self> {
+    pub fn invert_2_49(self) -> Option<Self> {
         if self.is_zero() {
             return None;
         }
@@ -236,42 +236,42 @@ mod tests {
 
     #[test]
     fn invert_zero_is_none() {
-        assert_eq!(GF2_128::zero().invert(), None);
+        assert_eq!(GF2_128::zero().invert_2_48(), None);
     }
 
     #[test]
     fn invert_one_is_one() {
-        assert_eq!(GF2_128::one().invert(), Some(GF2_128::one()));
+        assert_eq!(GF2_128::one().invert_2_48(), Some(GF2_128::one()));
     }
 
     #[test]
     fn invert_roundtrip() {
         let a = GF2_128::new(0xdeadbeefcafe1234, 0xabcd1234);
-        let a_inv = a.invert().unwrap();
-        assert_eq!(a.mul(a_inv), GF2_128::one());
+        let a_inv = a.invert_2_48().unwrap();
+        assert_eq!(a.mul_2_33(a_inv), GF2_128::one());
     }
 
     #[test]
     fn invert_another() {
         let a = GF2_128::new(0x1234, 0x5678);
-        let a_inv = a.invert().unwrap();
-        assert_eq!(a.mul(a_inv), GF2_128::one());
+        let a_inv = a.invert_2_48().unwrap();
+        assert_eq!(a.mul_2_33(a_inv), GF2_128::one());
     }
 
     #[test]
     fn invert_binary_zero_is_none() {
-        assert_eq!(GF2_128::zero().invert_binary(), None);
+        assert_eq!(GF2_128::zero().invert_2_49(), None);
     }
 
     #[test]
     fn invert_binary_one_is_one() {
-        assert_eq!(GF2_128::one().invert_binary(), Some(GF2_128::one()));
+        assert_eq!(GF2_128::one().invert_2_49(), Some(GF2_128::one()));
     }
 
     #[test]
     fn invert_binary_roundtrip() {
         let a = GF2_128::new(0xdeadbeefcafe1234, 0xabcd1234);
-        assert_eq!(a.mul(a.invert_binary().unwrap()), GF2_128::one());
+        assert_eq!(a.mul_2_33(a.invert_2_49().unwrap()), GF2_128::one());
     }
 
     #[test]
@@ -283,7 +283,7 @@ mod tests {
             GF2_128::new(0x1, 0x0),
         ];
         for a in cases {
-            assert_eq!(a.invert_binary(), a.invert(), "mismatch for {:?}", a);
+            assert_eq!(a.invert_2_49(), a.invert_2_48(), "mismatch for {:?}", a);
         }
     }
 }

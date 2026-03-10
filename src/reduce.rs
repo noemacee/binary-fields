@@ -32,7 +32,7 @@ fn precompute_uk() -> [(u64, u64); 64] {
 
 /// Algorithm 2.40 — Modular reduction for GF(2^128).
 /// Takes a [u64; 4] intermediate and reduces it mod f(z).
-pub fn reduce(c: [u64; 4]) -> [u64; 2] {
+pub fn reduce_2_40(c: [u64; 4]) -> [u64; 2] {
     let mut c = c;
     let uk = precompute_uk();
 
@@ -141,7 +141,7 @@ pub fn reduce(c: [u64; 4]) -> [u64; 2] {
 /// require an explicit mask in their final step.
 ///
 /// Total cost: 14 XOR/shift operations, versus 127 loop iterations in Algorithm 2.40.
-pub fn reduce_128_gf2p128(c: [u64; 4]) -> [u64; 2] {
+pub fn reduce_2_41(c: [u64; 4]) -> [u64; 2] {
     let mut c = c;
 
     // --- Step 1: Reduce C[3] into C[1] and C[2] ---
@@ -173,54 +173,54 @@ mod tests {
 
     #[test]
     fn reduce_zero() {
-        assert_eq!(reduce([0, 0, 0, 0]), [0, 0]);
+        assert_eq!(reduce_2_40([0, 0, 0, 0]), [0, 0]);
     }
 
     #[test]
     fn reduce_one() {
         // 1 is already reduced
-        assert_eq!(reduce([1, 0, 0, 0]), [1, 0]);
+        assert_eq!(reduce_2_40([1, 0, 0, 0]), [1, 0]);
     }
 
     #[test]
     fn reduce_z128() {
         // z^128 = r(z) = 0x87
         // z^128 is bit 128 = bit 0 of word 2
-        assert_eq!(reduce([0, 0, 1, 0]), [0x87, 0]);
+        assert_eq!(reduce_2_40([0, 0, 1, 0]), [0x87, 0]);
     }
 
     #[test]
     fn reduce_z129() {
         // z^129 = z * r(z) = 0x87 << 1 = 0x10e
-        assert_eq!(reduce([0, 0, 0b10, 0]), [0x10e, 0]);
+        assert_eq!(reduce_2_40([0, 0, 0b10, 0]), [0x10e, 0]);
     }
     #[test]
     fn fast_reduce_zero() {
-        assert_eq!(reduce_128_gf2p128([0, 0, 0, 0]), [0, 0]);
+        assert_eq!(reduce_2_41([0, 0, 0, 0]), [0, 0]);
     }
 
     #[test]
     fn fast_reduce_one() {
-        assert_eq!(reduce_128_gf2p128([1, 0, 0, 0]), [1, 0]);
+        assert_eq!(reduce_2_41([1, 0, 0, 0]), [1, 0]);
     }
 
     #[test]
     fn fast_reduce_z128() {
         // z^128 ≡ z^7 + z^2 + z + 1 = 0x87
-        assert_eq!(reduce_128_gf2p128([0, 0, 1, 0]), [0x87, 0]);
+        assert_eq!(reduce_2_41([0, 0, 1, 0]), [0x87, 0]);
     }
 
     #[test]
     fn fast_reduce_z129() {
         // z^129 ≡ z^8 + z^3 + z^2 + z = 0x10e
-        assert_eq!(reduce_128_gf2p128([0, 0, 0b10, 0]), [0x10e, 0]);
+        assert_eq!(reduce_2_41([0, 0, 0b10, 0]), [0x10e, 0]);
     }
 
     #[test]
     fn fast_reduce_z192() {
         // z^192 = z^(128+64) ≡ z^71 + z^66 + z^65 + z^64
         // bits 64..71 relative to result start → C[1] = (1<<7)|(1<<2)|(1<<1)|(1<<0) = 0x87
-        assert_eq!(reduce_128_gf2p128([0, 0, 0, 1]), [0, 0x87]);
+        assert_eq!(reduce_2_41([0, 0, 0, 1]), [0, 0x87]);
     }
 
     #[test]
@@ -232,8 +232,8 @@ mod tests {
         // z^128 ≡ z^7 + z^2 + z + 1
         // Final: z^127 + z^126 + z^12 + (z^7+z^7) + z^6 + z^5 + z^2 + z + 1
         //      = z^127 + z^126 + z^12 + z^6 + z^5 + z^2 + z + 1
-        let result = reduce_128_gf2p128([0, 0, 0, 1 << 62]); // C[3] bit 62 = z^254
-        let expected_slow = reduce([0, 0, 0, 1 << 62]);
+        let result = reduce_2_41([0, 0, 0, 1 << 62]); // C[3] bit 62 = z^254
+        let expected_slow = reduce_2_40([0, 0, 0, 1 << 62]);
         assert_eq!(result, expected_slow);
     }
 
@@ -242,41 +242,41 @@ mod tests {
     #[test]
     fn fast_matches_general_z128() {
         let input = [0, 0, 1, 0];
-        assert_eq!(reduce_128_gf2p128(input), reduce(input));
+        assert_eq!(reduce_2_41(input), reduce_2_40(input));
     }
 
     #[test]
     fn fast_matches_general_z192() {
         let input = [0, 0, 0, 1];
-        assert_eq!(reduce_128_gf2p128(input), reduce(input));
+        assert_eq!(reduce_2_41(input), reduce_2_40(input));
     }
 
     #[test]
     fn fast_matches_general_z254() {
         // Highest valid input: C[3] bit 62
         let input = [0, 0, 0, 1 << 62];
-        assert_eq!(reduce_128_gf2p128(input), reduce(input));
+        assert_eq!(reduce_2_41(input), reduce_2_40(input));
     }
 
     #[test]
     fn fast_matches_general_all_ones_valid() {
         // Valid all-ones: C[3] has bit 63 cleared (max valid C[3] = u64::MAX >> 1)
         let input = [u64::MAX, u64::MAX, u64::MAX, u64::MAX >> 1];
-        assert_eq!(reduce_128_gf2p128(input), reduce(input));
+        assert_eq!(reduce_2_41(input), reduce_2_40(input));
     }
 
     #[test]
     fn fast_matches_general_c3_all_low_bits() {
         // C[3] with all bits set except bit 63
         let input = [0, 0, 0, u64::MAX >> 1];
-        assert_eq!(reduce_128_gf2p128(input), reduce(input));
+        assert_eq!(reduce_2_41(input), reduce_2_40(input));
     }
 
     #[test]
     fn fast_matches_general_c2_all_bits() {
         // C[2] fully set is valid (z^128..z^191, all ≤ 254)
         let input = [0, 0, u64::MAX, 0];
-        assert_eq!(reduce_128_gf2p128(input), reduce(input));
+        assert_eq!(reduce_2_41(input), reduce_2_40(input));
     }
 
     #[test]
@@ -316,8 +316,8 @@ mod tests {
             // Verify C[3] bit 63 is clear (valid input precondition)
             assert_eq!(input[3] >> 63, 0, "test vector has invalid degree-255 term");
             assert_eq!(
-                reduce_128_gf2p128(input),
-                reduce(input),
+                reduce_2_41(input),
+                reduce_2_40(input),
                 "mismatch on input {:?}",
                 input
             );
