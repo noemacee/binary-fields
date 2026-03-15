@@ -113,10 +113,8 @@ pub trait BinaryFieldConfig<const N: usize>: Send + Sync + 'static + Sized {
     /// Override only for non-round degrees (e.g. GF(2^127)).
     const DEGREE: usize = N * 64;
 
-    const ZERO:    BinaryField<Self, N>;
-    const ONE:     BinaryField<Self, N>;
-    const NEG_ONE: BinaryField<Self, N>;   // = ONE in char 2
-    const GENERATOR: BinaryField<Self, N>;
+    const ZERO: BinaryField<Self, N>;
+    const ONE:  BinaryField<Self, N>;
 
     fn mul_assign(a: &mut [u64; N], b: &[u64; N]);
     fn square_in_place(a: &mut [u64; N]);
@@ -126,7 +124,12 @@ pub trait BinaryFieldConfig<const N: usize>: Send + Sync + 'static + Sized {
 
 `N` is the number of 64-bit limbs: `N = 2` for GF(2^128), `N = 4` for
 GF(2^256), etc. The config only needs to supply three arithmetic methods and
-four constants; everything else is derived generically.
+two constants; everything else is derived generically.
+
+`NEG_ONE` and `GENERATOR` are intentionally absent:
+- `NEG_ONE` is always `ONE` in characteristic 2 — it would be a tautology to require it.
+- `GENERATOR` is only meaningful for `FftField`, which `BinaryField` does not implement
+  (see the section below on why).
 
 ### `BinaryField<P, N>` struct
 
@@ -170,7 +173,7 @@ Limb layout: `limbs[0]` holds coefficients for powers z^0…z^63 (LSB = z^0),
 | `legendre` | Always `QuadraticResidue` for nonzero elements (Frobenius is bijective) |
 | `characteristic` | Returns `&[2]` |
 | `from_base_prime_field(g: Gf2)` | Embeds 0 or 1 as the constant polynomial term |
-| `to_base_prime_field_elements` | Yields 128 `Gf2` bits (LSB first) |
+| `to_base_prime_field_elements` | Yields `DEGREE` `Gf2` bits (LSB first) |
 | `from_base_prime_field_elems` | Reconstructs element from exactly `DEGREE` bits |
 
 **`DEGREE` constant:**
@@ -182,6 +185,50 @@ GF(2^256) with N=4, etc. It can be overridden for non-round degrees:
 // GF(2^127) would set:
 const DEGREE: usize = 127;  // override; top bit of limbs[1] is always 0
 ```
+
+---
+
+## Why `BinaryField` does not implement `FftField`
+
+`FftField` requires a large power-of-2 subgroup in the multiplicative group,
+needed for FFT-based polynomial operations. Whether such a subgroup exists
+depends on the order of the multiplicative group:
+
+```
+|GF(2^m)*| = 2^m - 1
+```
+
+Because `2^m` is always even, `2^m - 1` is always **odd**. An odd number has
+no factors of 2 at all, which means `TWO_ADICITY = 0` for every binary
+extension field. There is no power-of-2 multiplicative subgroup of size > 1,
+so the FFT structure `FftField` encodes simply does not exist.
+
+Compare to a prime field like BLS12-381's scalar field where `p - 1 = 2^32 * t`,
+giving `TWO_ADICITY = 32` — a subgroup of size 4 billion, enabling efficient
+FFT-based polynomial arithmetic.
+
+**What would be needed to implement `FftField`:**
+
+You could add the impl with `TWO_ADICITY = 0`, which is mathematically correct:
+
+```rust
+impl<P: BinaryFieldConfig<N>, const N: usize> FftField for BinaryField<P, N> {
+    const GENERATOR: Self = /* primitive element, required from config */;
+    const TWO_ADICITY: u32 = 0;
+    const TWO_ADIC_ROOT_OF_UNITY: Self = P::ONE; // only 1st root of unity is 1
+}
+```
+
+This would compile and satisfy the trait bound, but it signals to every
+downstream consumer that no useful FFT of size > 1 is possible. It would only
+be worth doing if a library you depend on requires `FftField` as a bound on
+its inputs, forcing you to satisfy it for compatibility.
+
+**Note on additive FFT:** There are FFT algorithms over binary fields
+(Cantor's algorithm, additive FFT) that work over the *additive* group
+structure of GF(2^m). These are genuinely efficient, but they require a
+completely different interface that arkworks' `FftField` does not capture.
+Implementing those would require a new trait outside the arkworks hierarchy.
 
 ---
 
@@ -221,7 +268,7 @@ To instantiate GF(2^m) for a new m:
    - `mul_assign` — carry-less multiplication mod your irreducible polynomial
    - `square_in_place` — squaring (can use generic squaring if no fast path)
    - `inverse` — extended Euclidean / binary GCD
-   - `ZERO`, `ONE`, `NEG_ONE`, `GENERATOR`
+   - `ZERO`, `ONE`
    - Optionally override `DEGREE` if m is not a multiple of 64
 3. Define the type alias:
    ```rust

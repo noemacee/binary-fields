@@ -16,13 +16,6 @@ impl BinaryFieldConfig<2> for Gf128Config {
 
     const ONE: BinaryField<Self, 2> = BinaryField([1u64, 0u64], core::marker::PhantomData);
 
-    // -1 = 1 in characteristic 2
-    const NEG_ONE: BinaryField<Self, 2> = BinaryField([1u64, 0u64], core::marker::PhantomData);
-
-    // A standard primitive element for GF(2^128) with this polynomial.
-    // z (the polynomial variable) has multiplicative order 2^128 - 1.
-    const GENERATOR: BinaryField<Self, 2> = BinaryField([2u64, 0u64], core::marker::PhantomData);
-
     /// Carry-less multiplication modulo f(z) = z^128 + z^7 + z^2 + z + 1.
     /// Uses Algorithm 2.34 (comb method) + Algorithm 2.41 (fast reduction).
     fn mul_assign(a: &mut [u64; 2], b: &[u64; 2]) {

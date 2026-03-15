@@ -41,12 +41,6 @@ pub trait BinaryFieldConfig<const N: usize>: Send + Sync + 'static + Sized {
     /// The multiplicative identity, i.e. the polynomial 1.
     const ONE: BinaryField<Self, N>;
 
-    /// Negation of ONE — in characteristic 2 this is the same as ONE.
-    const NEG_ONE: BinaryField<Self, N>;
-
-    /// A primitive element (generator of the multiplicative group).
-    const GENERATOR: BinaryField<Self, N>;
-
     /// Compute `a *= b` (carry-less multiplication mod the irreducible polynomial).
     fn mul_assign(a: &mut [u64; N], b: &[u64; N]);
 
