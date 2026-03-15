@@ -5,6 +5,11 @@ edition = "2024"
 
 [dependencies]
 criterion = "0.5"
+ark-ff = "0.5"
+ark-serialize = "0.5"
+ark-std = "0.5"
+zeroize = "1"
+num-bigint = "0.4"
 
 [[bench]]
 name = "field_ops"

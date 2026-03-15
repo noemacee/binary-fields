@@ -323,4 +323,40 @@ mod tests {
             );
         }
     }
+
+    // Ground-truth test vectors verified against the galois Python library.
+    // These use unreduced products of field elements as inputs, so C[2]/C[3]
+    // are genuinely non-zero and the reduction logic is fully exercised.
+    //
+    // Python:
+    //   import galois
+    //   GF = galois.GF(2**128, irreducible_poly="x^128 + x^7 + x^2 + x + 1")
+    //   # see tests/generate_values.py for full derivation
+
+    #[test]
+    fn galois_reduce_z254() {
+        // z^127 * z^127 = z^254, which requires reducing from C[3].
+        // z^254 ≡ z^127 + z^126 + z^12 + z^6 + z^5 + z^2 + z + 1
+        //       = [0x1067, 0xc000000000000000]
+        let input = [0x0, 0x0, 0x0, 0x4000000000000000];
+        let expected = [0x1067, 0xc000000000000000];
+        assert_eq!(reduce_2_40(input), expected);
+        assert_eq!(reduce_2_41(input), expected);
+    }
+
+    #[test]
+    fn galois_reduce_dense() {
+        // (2^128 - 1) * (2^128 - 1): both operands are all-ones (every bit set),
+        // their unreduced product has C[2] and C[3] both fully populated.
+        // Verified via galois: output = [0x555555555555402f, 0x5555555555555555]
+        let input = [
+            0x5555555555555555,
+            0x5555555555555555,
+            0x5555555555555555,
+            0x5555555555555555,
+        ];
+        let expected = [0x555555555555402f, 0x5555555555555555];
+        assert_eq!(reduce_2_40(input), expected);
+        assert_eq!(reduce_2_41(input), expected);
+    }
 }

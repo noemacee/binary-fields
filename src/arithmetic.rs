@@ -104,6 +104,12 @@ impl GF2_128 {
         c
     }
 
+    /// Squaring via mul_2_33: computes self * self using Algorithm 2.33.
+    /// Serves as a baseline to compare against the dedicated square_2_39.
+    pub fn square_via_mul_2_33(self) -> Self {
+        self.mul_2_33(self)
+    }
+
     /// Algorithm 2.39 — Squaring in GF(2^128).
     /// Expands bits then reduces mod f(z) via Algorithm 2.40.
     pub fn square_2_39(self) -> Self {
@@ -327,5 +333,23 @@ mod tests {
         let z127 = GF2_128::new(0, 1u64 << 63);
         let z1 = GF2_128::new(0b10, 0);
         assert_eq!(z127.mul_2_34(z1), GF2_128::new(0x87, 0));
+    }
+
+    #[test]
+    fn mul_associative() {
+        let a = GF2_128::new(0xdeadbeefcafe1234, 0xabad1dea12345678);
+        let b = GF2_128::new(0x0102030405060708, 0xfedcba9876543210);
+        let c = GF2_128::new(0x1111222233334444, 0x5555666677778888);
+        // (a * b) * c == a * (b * c)  — fundamental field axiom
+        assert_eq!(a.mul_2_33(b).mul_2_33(c), a.mul_2_33(b.mul_2_33(c)));
+        assert_eq!(a.mul_2_34(b).mul_2_34(c), a.mul_2_34(b.mul_2_34(c)));
+    }
+
+    #[test]
+    fn mul_2_33_both_limbs_nonzero() {
+        // Both operands have both limbs non-zero; verified against mul_2_34.
+        let a = GF2_128::new(0xdeadbeefcafe1234, 0xabad1dea12345678);
+        let b = GF2_128::new(0x0102030405060708, 0xfedcba9876543210);
+        assert_eq!(a.mul_2_33(b), a.mul_2_34(b));
     }
 }

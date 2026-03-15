@@ -29,6 +29,14 @@ fn bench_mul_2_34(c: &mut Criterion) {
     });
 }
 
+fn bench_square_via_mul_2_33(c: &mut Criterion) {
+    let a = GF2_128::new(0xdeadbeefcafe1234, 0xabcd1234);
+
+    c.bench_function("square_via_mul_2_33", |bencher| {
+        bencher.iter(|| black_box(a).square_via_mul_2_33())
+    });
+}
+
 fn bench_square_2_39(c: &mut Criterion) {
     let a = GF2_128::new(0xdeadbeefcafe1234, 0xabcd1234);
 
@@ -84,6 +92,7 @@ criterion_group!(
     bench_reduce_2_41,
     bench_mul_2_33,
     bench_mul_2_34,
+    bench_square_via_mul_2_33,
     bench_square_2_39,
     bench_invert_2_48,
     bench_invert_2_49,
