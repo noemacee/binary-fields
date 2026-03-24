@@ -1,16 +1,20 @@
-//! `Gf128Config` — the concrete config for GF(2^128) with irreducible polynomial
-//! f(z) = z^128 + z^7 + z^2 + z + 1  (the GCM polynomial, also NIST GF(2^128)).
+//! `Gf128Config` — config for GF(2^128) with irreducible polynomial
+//! f(z) = z^128 + z^7 + z^2 + z + 1  (the GCM polynomial).
 //!
-//! All arithmetic delegates to the existing algorithms in `crate::arithmetic`,
-//! `crate::reduce`, and `crate::invert`.
+//! Overrides `mul_assign` and `square_in_place` with GCM-specific optimized
+//! algorithms from `crate::fields::z128_z7_z2_z1`.  `inverse` uses the generic
+//! default (Algorithm 2.48) from `crate::generic`.
 
-use crate::ark_compat::{BinaryField, BinaryFieldConfig};
+use crate::ark::{BinaryField, BinaryFieldConfig};
 
 /// Config for GF(2^128).
 pub struct Gf128Config;
 
 impl BinaryFieldConfig<2> for Gf128Config {
     // DEGREE defaults to N * 64 = 128 — no override needed.
+
+    // f(z) = z^128 + z^7 + z^2 + z + 1 → non-leading terms = z^7+z^2+z+1 = 0x87
+    const ALPHA_POW_M: [u64; 2] = [0x87, 0];
 
     const ZERO: BinaryField<Self, 2> = BinaryField([0u64; 2], core::marker::PhantomData);
 
@@ -19,29 +23,14 @@ impl BinaryFieldConfig<2> for Gf128Config {
     /// Carry-less multiplication modulo f(z) = z^128 + z^7 + z^2 + z + 1.
     /// Uses Algorithm 2.34 (comb method) + Algorithm 2.41 (fast reduction).
     fn mul_assign(a: &mut [u64; 2], b: &[u64; 2]) {
-        use crate::GF2_128;
-        let av = GF2_128::new(a[0], a[1]);
-        let bv = GF2_128::new(b[0], b[1]);
-        let r = av.mul_2_34(bv);
-        a[0] = r.0[0];
-        a[1] = r.0[1];
+        *a = crate::fields::z128_z7_z2_z1::mul_2_34(*a, *b);
     }
 
     /// Squaring via bit-expansion table (Algorithm 2.39) + fast reduction (Algorithm 2.41).
     fn square_in_place(a: &mut [u64; 2]) {
-        use crate::GF2_128;
-        let av = GF2_128::new(a[0], a[1]);
-        let r = av.square_2_39();
-        a[0] = r.0[0];
-        a[1] = r.0[1];
+        *a = crate::fields::z128_z7_z2_z1::square_2_39(*a);
     }
 
-    /// Inversion via binary GCD algorithm (Algorithm 2.49).
-    fn inverse(a: &[u64; 2]) -> Option<[u64; 2]> {
-        use crate::GF2_128;
-        let av = GF2_128::new(a[0], a[1]);
-        av.invert_2_49().map(|r| [r.0[0], r.0[1]])
-    }
 }
 
 /// GF(2^128) as an arkworks `Field`.
@@ -147,7 +136,7 @@ mod tests {
 
     #[test]
     fn from_gf2_element() {
-        use crate::ark_compat::Gf2;
+        use crate::ark::Gf2;
         let zero = Gf128::from_base_prime_field(Gf2::zero());
         let one  = Gf128::from_base_prime_field(Gf2::one());
         assert!(zero.is_zero());
@@ -223,14 +212,14 @@ mod tests {
 
     #[test]
     fn mul_by_base_prime_field_zero_gives_zero() {
-        use crate::ark_compat::Gf2;
+        use crate::ark::Gf2;
         let a = gf(0xdeadbeefcafe1234, 0xabad1dea12345678);
         assert!(a.mul_by_base_prime_field(&Gf2::zero()).is_zero());
     }
 
     #[test]
     fn mul_by_base_prime_field_one_gives_self() {
-        use crate::ark_compat::Gf2;
+        use crate::ark::Gf2;
         let a = gf(0xdeadbeefcafe1234, 0xabad1dea12345678);
         assert_eq!(a.mul_by_base_prime_field(&Gf2::one()), a);
     }
@@ -281,7 +270,7 @@ mod tests {
 
     #[test]
     fn from_base_prime_field_elems_wrong_count_is_none() {
-        use crate::ark_compat::Gf2;
+        use crate::ark::Gf2;
         // Too few
         let bits: ark_std::vec::Vec<Gf2> = (0..127).map(|_| Gf2::zero()).collect();
         assert!(Gf128::from_base_prime_field_elems(bits).is_none());
@@ -308,6 +297,57 @@ mod tests {
         let expected = a * b * c;
         let got: Gf128 = [a, b, c].iter().copied().product();
         assert_eq!(got, expected);
+    }
+
+    // ── Known-vector tests generated with the Python `galois` library ────────
+    // seed 0xdeadbeef; galois.GF(2**128, irreducible_poly="x^128+x^7+x^2+x+1")
+
+    #[test]
+    fn mul_known_vectors() {
+        // Generated with Python galois: GF(2**128, irreducible_poly='x^128+x^7+x^2+x+1')
+        let cases: &[([u64;2],[u64;2],[u64;2])] = &[
+            ([0x6d2e9cb704e5f153, 0xe65ea5827839d4f0], [0xee408ef1996ab63a, 0xe4dd43466d146df7], [0x455a77734b91cf8e, 0x670ac21e287ccb0b]),
+            ([0x60ac95819cb87ff0, 0xc5bb01ffba43a322], [0xfd023762a0c39500, 0x77109b38f72041f0], [0xccd1226c225306a5, 0xbe424c494361e678]),
+            ([0x65138aaf54ded307, 0xb1dfd59a5d604585], [0x686c514eab1f1cba, 0xec6fd3b6b9101400], [0x6ca978fa2b10ab4e, 0x5a6e88cc1f8b54b2]),
+            ([0xd8790dfed23e6153, 0xb68403d3619ed109], [0xa9309903820d4638, 0x46b94a5d4486fe1b], [0x0e5856d8dca261e9, 0x62aded75cc9cb38e]),
+            ([0x404b5b85fe11370d, 0x4043e4a9f9072dd5], [0x852e48672d75dadc, 0x63fd0c3450ae1132], [0x499b3c175bd18a0b, 0xb9033cc9a69c6fb4]),
+            ([0x7cd2999122d31814, 0x513ce8596968b954], [0xef91d8d492cf8b1c, 0x792918de94ca7438], [0x227fdc899f525e12, 0x3b258f950e9f18ab]),
+        ];
+        for &(a,b,exp) in cases {
+            assert_eq!(gf(a[0],a[1]) * gf(b[0],b[1]), gf(exp[0],exp[1]));
+        }
+    }
+
+    #[test]
+    fn square_known_vectors() {
+        // Generated with Python galois.
+        let cases: &[([u64;2],[u64;2])] = &[
+            ([0xf328bc0e21a4f22b, 0xed80b1e4fffd2abf], [0x040146256afb613f, 0xd013c4631efca40f]),
+            ([0x85ec45f9adc68838, 0x27c1246601f2a83a], [0x44fd792bbd82bc92, 0x56d3e4d5046b332d]),
+            ([0xa969180d6454ce16, 0x8c5e7590b0289ba9], [0x4f122cf1342cec34, 0xadf9c8e7e2964772]),
+            ([0x9a9d0b9a2d62473e, 0x4c72dfcbf051186c], [0x2f59e383b6df44dc, 0x18fea8641c47d234]),
+            ([0x5bc843e7294f608f, 0x7ee729d6b5e27424], [0x579dbe43f7725113, 0xd1c2f6a92d6b695a]),
+            ([0x739c0b24557cea39, 0xc9ae1a7f63380165], [0x7f88af9054c975e9, 0x8461b6fca493c431]),
+        ];
+        for &(a,exp) in cases {
+            assert_eq!(gf(a[0],a[1]).square(), gf(exp[0],exp[1]));
+        }
+    }
+
+    #[test]
+    fn inverse_known_vectors() {
+        // Generated with Python galois.
+        let cases: &[([u64;2],[u64;2])] = &[
+            ([0xf9f88e42711b4eb1, 0x425306909080d43e], [0x56901c591c2d1fd1, 0x01f71baa4c8b6ca1]),
+            ([0x8a6c15d3d2b5d226, 0x93dfca97387ba07a], [0x653505fc7b509e39, 0x9e23f9f61b5f5615]),
+            ([0x758dce0815ab5499, 0x557be408ecf4842a], [0x53f0552aa5605461, 0x3052fd630fb353da]),
+            ([0xe94435dc7fccbbe8, 0x02ba68a0310fbbd5], [0xaad21a58c89e4d5b, 0x652db4eca00e266b]),
+            ([0x273804ca0cdfe470, 0xceb5e77d473a6c8a], [0xe34835721f20df0d, 0xff244027e1b23829]),
+            ([0x88b065c1977be8cb, 0xbe7a72ffb139c4f1], [0x4f12e624e1a0fe4c, 0xa1eaf28f16e329f4]),
+        ];
+        for &(a,exp) in cases {
+            assert_eq!(gf(a[0],a[1]).inverse(), Some(gf(exp[0],exp[1])));
+        }
     }
 
     #[test]

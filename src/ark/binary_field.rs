@@ -19,21 +19,39 @@ use ark_std::{
 };
 use zeroize::Zeroize;
 
-use crate::ark_compat::Gf2;
+use crate::ark::Gf2;
 
 // ─── BinaryFieldConfig ───────────────────────────────────────────────────────
 
 /// Configuration for a binary extension field GF(2^DEGREE).
 ///
-/// Implementors supply the DEGREE, identity constants, a primitive generator,
-/// and the three performance-critical arithmetic operations.
+/// Implementors must supply `ALPHA_POW_M`, `ZERO`, and `ONE`.  The arithmetic
+/// methods (`mul_assign`, `square_in_place`, `inverse`) have default
+/// implementations that use the generic algorithms in `crate::generic`,
+/// driven by `ALPHA_POW_M` and `DEGREE`.  Fields with known fast reductions
+/// (e.g. GF(2^128) with the GCM polynomial) override these methods with
+/// optimized versions.
 pub trait BinaryFieldConfig<const N: usize>: Send + Sync + 'static + Sized {
     /// The extension degree over GF(2).
     ///
-    /// Defaults to `N * 64` (all limbs fully used).  Override only for
-    /// non-round degrees such as GF(2^127) where the top limb is partially
+    /// Defaults to `N * 64` (all limbs fully used).  Override for
+    /// non-round degrees such as GF(2^233) where the top limb is partially
     /// used.  Must satisfy `DEGREE ≤ N * 64` and `DEGREE > (N-1) * 64`.
     const DEGREE: usize = N * 64;
+
+    /// The value of α^m expressed in the polynomial basis {1, α, …, α^(m-1)}.
+    ///
+    /// α is the root of the irreducible polynomial f(z), so f(α) = 0, giving
+    /// α^m = -(lower terms of f) = lower terms of f  (in characteristic 2).
+    ///
+    /// E.g. for f(z) = z^128 + z^7 + z^2 + z + 1:
+    ///   α^128 = α^7 + α^2 + α + 1  →  `ALPHA_POW_M = [0x87, 0]`.
+    /// For f(z) = z^233 + z^74 + 1:
+    ///   α^233 = α^74 + 1             →  `ALPHA_POW_M = [1, 1 << 10, 0, 0]`.
+    ///
+    /// Used by the generic default implementations of `mul_assign`,
+    /// `square_in_place`, and `inverse`.
+    const ALPHA_POW_M: [u64; N];
 
     /// The additive identity [0, 0, ..., 0].
     const ZERO: BinaryField<Self, N>;
@@ -42,13 +60,37 @@ pub trait BinaryFieldConfig<const N: usize>: Send + Sync + 'static + Sized {
     const ONE: BinaryField<Self, N>;
 
     /// Compute `a *= b` (carry-less multiplication mod the irreducible polynomial).
-    fn mul_assign(a: &mut [u64; N], b: &[u64; N]);
+    ///
+    /// The default uses the generic shift-and-add algorithm with bit-by-bit
+    /// reduction (`crate::generic::arithmetic::mul_2_33`).
+    fn mul_assign(a: &mut [u64; N], b: &[u64; N]) {
+        debug_assert!(Self::DEGREE >= 1, "DEGREE must be >= 1");
+        debug_assert!(Self::DEGREE <= N * 64, "DEGREE exceeds limb capacity");
+        debug_assert!(N == 0 || Self::DEGREE > (N - 1) * 64, "DEGREE fits in fewer limbs than N");
+        *a = crate::generic::arithmetic::mul_2_33(a, b, &Self::ALPHA_POW_M, Self::DEGREE);
+    }
 
     /// Compute `a *= a` (squaring, typically faster than general multiplication).
-    fn square_in_place(a: &mut [u64; N]);
+    ///
+    /// The default delegates to `mul_assign(a, a)`.
+    fn square_in_place(a: &mut [u64; N]) {
+        debug_assert!(Self::DEGREE >= 1, "DEGREE must be >= 1");
+        debug_assert!(Self::DEGREE <= N * 64, "DEGREE exceeds limb capacity");
+        debug_assert!(N == 0 || Self::DEGREE > (N - 1) * 64, "DEGREE fits in fewer limbs than N");
+        let copy = *a;
+        *a = crate::generic::arithmetic::mul_2_33(&copy, &copy, &Self::ALPHA_POW_M, Self::DEGREE);
+    }
 
     /// Compute `a^{-1}`.  Returns `None` iff `a` is zero.
-    fn inverse(a: &[u64; N]) -> Option<[u64; N]>;
+    ///
+    /// The default uses the generic extended Euclidean algorithm
+    /// (`crate::generic::invert::invert_2_48`).
+    fn inverse(a: &[u64; N]) -> Option<[u64; N]> {
+        debug_assert!(Self::DEGREE >= 1, "DEGREE must be >= 1");
+        debug_assert!(Self::DEGREE <= N * 64, "DEGREE exceeds limb capacity");
+        debug_assert!(N == 0 || Self::DEGREE > (N - 1) * 64, "DEGREE fits in fewer limbs than N");
+        crate::generic::invert::invert_2_48(a, &Self::ALPHA_POW_M, Self::DEGREE)
+    }
 }
 
 // ─── BinaryField struct ───────────────────────────────────────────────────────
