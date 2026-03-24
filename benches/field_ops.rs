@@ -2,6 +2,8 @@ use binary_fields::generic::arithmetic::{add_2_32, mul_2_33};
 use binary_fields::generic::invert::{invert_2_48, invert_2_49};
 use binary_fields::generic::reduce::reduce_2_40;
 use binary_fields::fields::z128_z7_z2_z1::{mul_2_34, square_2_39, reduce_2_41, pow_rtl_2_34_2_39};
+use binary_fields::ark::{Gf128, Gf128Generic};
+use ark_ff::Field;
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 
 const GCM_POLY: [u64; 2] = [0x87, 0];
@@ -85,6 +87,29 @@ fn bench_pow_rtl_2_34_2_39(c: &mut Criterion) {
     });
 }
 
+fn bench_gf128_field(c: &mut Criterion) {
+    let a_limbs = [0xdeadbeefcafe1234_u64, 0xabcd123400000000];
+    let b_limbs = [0x1234567890abcdef_u64, 0xfedcba9876543210];
+
+    let a_gen = Gf128Generic::new(a_limbs);
+    let b_gen = Gf128Generic::new(b_limbs);
+    let a_opt = Gf128::new(a_limbs);
+    let b_opt = Gf128::new(b_limbs);
+
+    let mut group = c.benchmark_group("gf128");
+
+    group.bench_function("mul/generic",   |bencher| bencher.iter(|| black_box(a_gen) * black_box(b_gen)));
+    group.bench_function("mul/optimized", |bencher| bencher.iter(|| black_box(a_opt) * black_box(b_opt)));
+
+    group.bench_function("square/generic",   |bencher| bencher.iter(|| black_box(a_gen).square()));
+    group.bench_function("square/optimized", |bencher| bencher.iter(|| black_box(a_opt).square()));
+
+    group.bench_function("inverse/generic",   |bencher| bencher.iter(|| black_box(a_gen).inverse()));
+    group.bench_function("inverse/optimized", |bencher| bencher.iter(|| black_box(a_opt).inverse()));
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_add_2_32,
@@ -97,5 +122,6 @@ criterion_group!(
     bench_invert_2_48,
     bench_invert_2_49,
     bench_pow_rtl_2_34_2_39,
+    bench_gf128_field,
 );
 criterion_main!(benches);
