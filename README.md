@@ -1,113 +1,204 @@
-# Binary Fields
+# binary-fields
 
-Implementation of arithmetic in GF(2^128), following *Guide to Elliptic Curve Cryptography* (Hankerson, Menezes, Vanstone), Chapter 2.3.
+Arithmetic in binary extension fields GF(2^m), implemented in Rust with an
+[arkworks](https://arkworks.rs) `Field` trait integration.
 
-Cross-validated against the [`galois`](https://github.com/mhostetter/galois) Python library.
-
----
-
-## Target Parameters
-
-- **Field:** GF(2^128)
-- **Irreducible polynomial:** f(z) = z^128 + z^7 + z^2 + z + 1 (used in AES-GCM, NIST SP 800-38D)
-- **Word size:** W = 64
-- **Words per element:** t = 2, s = 0 (no unused bits)
-- **Storage:** `[u64; 2]` — `A[0]` holds `a63..a0`, `A[1]` holds `a127..a64`
+Algorithms follow *Guide to Elliptic Curve Cryptography* (Hankerson, Menezes,
+Vanstone), Chapter 2.3. All implementations are cross-validated against the
+[`galois`](https://github.com/mhostetter/galois) Python library.
 
 ---
 
-## Implementation
+## Architecture
 
-### ✅ Step 1 — Representation (Figure 2.4)
-Define the `GF2_128` struct as `[u64; 2]`. Establish the bit layout convention and implement `zero()`, `one()`, `is_zero()`, and `new(lo, hi)`.
+The crate is organized in three layers:
 
-### ✅ Step 2 — Addition (Algorithm 2.32)
-XOR each word independently. Also implement `sub()` (identical to addition in characteristic 2) and `neg()` (identity in characteristic 2).
+```
+src/
+├── polynomials.rs          — catalogue of irreducible polynomials
+├── generic/                — polynomial-agnostic algorithms
+│   ├── arithmetic.rs       — addition (2.32), multiplication (2.33)
+│   ├── reduce.rs           — bit-at-a-time reduction (2.40)
+│   └── invert.rs           — EEA (2.48) and binary GCD (2.49)
+├── fields/                 — polynomial-specific optimized implementations
+│   ├── z128_z7_z2_z1/      — GF(2^128) GCM polynomial, fully optimized
+│   └── z233_z74_z1/        — GF(2^233) NIST polynomial (no overrides yet)
+└── ark/                    — arkworks Field trait integration
+    ├── gf2.rs              — GF(2) base field
+    ├── binary_field.rs     — generic BinaryField<Config, N> and BinaryFieldConfig trait
+    └── configs/            — one config per implemented field
+        ├── gf128.rs        — Gf128Config / Gf128 (optimized)
+        ├── gf128_generic.rs — Gf128GenericConfig / Gf128Generic (generic baseline)
+        └── gf233.rs        — Gf233Config / Gf233
+```
 
-### ✅ Step 3 — Multiplication, baseline (Algorithm 2.33)
-Right-to-left shift-and-add field multiplication. Reduction mod f(z) is handled inline at each step via `mul_by_z()`: left-shift by 1, then XOR with `r(z) = 0x87` if the high bit spills over.
+The **generic layer** works for any field degree and irreducible polynomial.
+The **field-specific layer** provides optimized fast paths for concrete
+polynomials. The **arkworks layer** exposes fields as `Field` trait
+implementations via a config trait that selects which algorithms to use.
 
-### ✅ Step 4 — Reduction, general (Algorithm 2.40)
-General modular reduction one bit at a time. Takes a `[u64; 4]` intermediate polynomial of degree at most 254 and reduces it mod f(z) to `[u64; 2]`.
+---
 
-### ✅ Step 5 — Reduction, fast (`reduce_2_41`)
-Word-at-a-time reduction specialized for f(z) = z^128 + z^7 + z^2 + z + 1 with W=64. Derived following the method of HMV §2.3.5 (analogous to Algorithms 2.41–2.45 but for W=64 instead of W=32).
+## Polynomial Catalogue
 
-The derivation exploits two structural properties of this polynomial:
-- m = 128 is a multiple of W = 64: perfect word alignment, no masking step needed
-- deg(r) = 7 < W = 64: all reduction terms land within one word of their source, keeping overflow shifts small (>>57, >>62, >>63)
+`src/polynomials.rs` is the single source of truth for all irreducible
+polynomials used in the crate. Each `IrreduciblePoly` constant carries the
+degree, non-leading exponents, the `ALPHA_POW_M` encoding (what α^m equals
+after reduction), and a usage note.
 
-Total cost: 14 XOR/shift operations versus 127 loop iterations in Algorithm 2.40.
+| Constant       | Polynomial                          | Field size | Note                              |
+|----------------|-------------------------------------|------------|-----------------------------------|
+| `GF64`         | z^64 + z^4 + z^3 + z + 1           | GF(2^64)   | Lightweight crypto / LFSR         |
+| `GF128_GCM`    | z^128 + z^7 + z^2 + z + 1          | GF(2^128)  | AES-GCM (NIST SP 800-38D)         |
+| `GF163_NIST`   | z^163 + z^7 + z^6 + z^3 + 1        | GF(2^163)  | NIST B-163 / K-163                |
+| `GF233_NIST`   | z^233 + z^74 + 1                    | GF(2^233)  | NIST B-233 / K-233                |
+| `GF283_NIST`   | z^283 + z^12 + z^7 + z^5 + 1       | GF(2^283)  | NIST B-283 / K-283                |
+| `GF409_NIST`   | z^409 + z^87 + 1                    | GF(2^409)  | NIST B-409 / K-409                |
+| `GF571_NIST`   | z^571 + z^10 + z^5 + z^2 + 1       | GF(2^571)  | NIST B-571 / K-571                |
 
-### ✅ Step 6 — Squaring (Algorithm 2.39)
-Exploit the fact that squaring is a linear map in characteristic 2: insert a zero bit between consecutive bits of `a`. Implemented via a precomputed 512-byte lookup table on bytes, followed by fast reduction.
+Field configs reference these constants directly — `ALPHA_POW_M` and `DEGREE`
+are never hardcoded in the configs themselves.
 
-### ✅ Step 7 — Multiplication, fast (Algorithm 2.34)
-Right-to-left comb method. Processes all words of A column by column (one bit position k at a time across all words), shifting B by one bit per outer iteration instead of one bit per element bit. Followed by `reduce_128_gf2p128`.
+---
 
-Cost reduction vs Algorithm 2.33: outer loop shrinks from m=128 to W=64 iterations; B is shifted 63 times instead of 127 times. Followed by `reduce_2_41`.
+## Usage
 
-### ✅ Step 8 — Inversion, EEA (Algorithm 2.48)
-Extended Euclidean algorithm over GF(2)[x]. Polynomials are represented as `[u64; 3]` internally to accommodate `f` (degree 128) and intermediate shifts. Clears high-degree terms first (left-to-right). Returns `None` for zero.
+### Field arithmetic via arkworks
 
-### ✅ Step 9 — Inversion, binary (Algorithm 2.49)
-Binary GCD algorithm, the polynomial analogue of Stein's algorithm. Clears low-degree terms first (right-to-left): checks divisibility by z via bit 0, divides by z via right-shift, and compares u vs v as integers rather than computing explicit degrees.
+```rust
+use binary_fields::ark::{Gf128, Gf233};
+use ark_ff::{Field, One, Zero};
 
-Division of a Bezout coefficient g by z mod f: if bit 0 of g is 0, right-shift directly; if bit 0 is 1, add f first (making it divisible by z since f has constant term 1), then right-shift. The z^128 term of f after shifting lands exactly at bit 127.
+// Construct elements
+let a = Gf128::new([0xdeadbeefcafe1234, 0xabad1dea12345678]);
+let b = Gf128::new([0x1234567890abcdef, 0xfedcba9876543210]);
 
-### ✅ Step 10 — Exponentiation
-Square-and-multiply. Uses `square_2_39()` and `mul_2_34()`.
+// Arithmetic
+let sum     = a + b;          // XOR
+let product = a * b;          // optimized comb multiplication
+let square  = a.square();     // bit-expansion table squaring
+let inv     = a.inverse();    // binary GCD inversion (None if a == 0)
+let power   = a.pow([42u64]); // square-and-multiply
+```
 
-### ✅ Step 11 — Utilities
-`from_u64()`, `to_words()` for constructing and inspecting field elements.
+### Using the polynomial catalogue
+
+```rust
+use binary_fields::polynomials;
+
+let poly = polynomials::GF128_GCM;
+println!("{}", poly.name);   // "z^128 + z^7 + z^2 + z + 1"
+println!("{}", poly.note);   // "GF(2^128) — GCM/AES-GCM ..."
+
+// Iterate over all known polynomials
+for p in polynomials::ALL {
+    println!("degree {}: {}", p.degree, p.name);
+}
+```
+
+### Using the generic algorithms directly
+
+```rust
+use binary_fields::generic::arithmetic::{add_2_32, mul_2_33};
+use binary_fields::generic::invert::invert_2_49;
+
+// Works for any field — supply the polynomial and degree
+const POLY: [u64; 2] = [0x87, 0];  // GF(2^128) GCM
+const DEG: usize = 128;
+
+let a = [0xdeadbeefcafe1234u64, 0xabad1dea12345678];
+let b = [0x1234567890abcdefu64, 0xfedcba9876543210];
+
+let sum     = add_2_32(a, b);
+let product = mul_2_33(&a, &b, &POLY, DEG);
+let inv     = invert_2_49(&a, &POLY, DEG);
+```
+
+---
+
+## Implemented Algorithms
+
+### Generic (any field)
+
+| Algorithm | Function           | Description                              |
+|-----------|--------------------|------------------------------------------|
+| 2.32      | `add_2_32`         | Addition — word-wise XOR                 |
+| 2.33      | `mul_2_33`         | Right-to-left shift-and-add multiplication |
+| 2.40      | `reduce_2_40`      | Bit-at-a-time modular reduction          |
+| 2.48      | `invert_2_48`      | Inversion via extended Euclidean algorithm |
+| 2.49      | `invert_2_49`      | Inversion via binary GCD                 |
+
+### GF(2^128) optimized (`fields::z128_z7_z2_z1`)
+
+| Algorithm | Function              | Description                                      |
+|-----------|-----------------------|--------------------------------------------------|
+| 2.34      | `mul_2_34`            | Right-to-left comb multiplication                |
+| 2.39      | `square_2_39`         | Squaring via 512-byte bit-expansion table        |
+| 2.41      | `reduce_2_41`         | Word-at-a-time reduction (14 XOR/shift ops)      |
+| —         | `pow_rtl_2_34_2_39`   | Square-and-multiply exponentiation               |
+
+The fast reduction (`reduce_2_41`) exploits two properties of the GCM
+polynomial: m = 128 is word-aligned (W = 64), and deg(r) = 7 < W, so all
+reduction terms stay within a single word boundary.
 
 ---
 
 ## Benchmarks
 
-| Operation                    | Algorithm           | Time    | Notes                             |
-|------------------------------|---------------------|---------|-----------------------------------|
-| `add_2_32`                   | 2.32                | ~0.9 ns | Two XORs                          |
-| `reduce_2_40`                | 2.40                | ~175 ns | Bit-at-a-time loop                |
-| `reduce_2_41`                | 2.41                | ~1.0 ns | Word-at-a-time, 14 XOR/shifts     |
-| `mul_2_33`                   | 2.33                | ~100 ns | Baseline, inline reduction        |
-| `mul_2_34`                   | 2.34                | ~49 ns  | Comb method + fast reduction      |
-| `square_2_39`                | 2.39                | ~2.8 ns | Lookup table + fast reduction     |
-| `invert_2_48`                | 2.48 (EEA)          | ~553 ns | Left-to-right, variable shifts    |
-| `invert_2_49`                | 2.49 (binary GCD)   | ~280 ns | Right-to-left, fixed 1-bit shifts |
-| `pow_rtl_2_34_2_39`          | square-and-multiply | ~7 µs   | RTL binary, uses 2.34 + 2.39      |
+Run with `cargo bench`. Criterion generates an HTML report in
+`target/criterion/`.
 
-Run benchmarks with `cargo bench`. Criterion generates an HTML report in `target/criterion/` including per-algorithm comparison plots.
+Latest results (Apple M-series, single core):
+
+| Benchmark                  | Time     | Notes                              |
+|----------------------------|----------|------------------------------------|
+| `add_2_32`                 | ~0.9 ns  | Two XORs                           |
+| `reduce_2_41`              | ~1.0 ns  | Word-at-a-time, 14 ops             |
+| `reduce_2_40`              | ~175 ns  | Bit-at-a-time loop                 |
+| `square_2_39`              | ~2.8 ns  | Lookup table + fast reduction      |
+| `mul_2_34`                 | ~49 ns   | Comb + fast reduction              |
+| `mul_2_33`                 | ~100 ns  | Baseline shift-and-add             |
+| `invert_2_49`              | ~280 ns  | Binary GCD                         |
+| `invert_2_48`              | ~553 ns  | Extended Euclidean                 |
+| `pow_rtl_2_34_2_39`        | ~7 µs    | 128-bit exponent, square-and-mul   |
+| `gf128/mul/optimized`      | ~49 ns   | Field-level, optimized config      |
+| `gf128/mul/generic`        | ~100 ns  | Field-level, generic config        |
+| `gf128/square/optimized`   | ~2.8 ns  |                                    |
+| `gf128/square/generic`     | ~100 ns  |                                    |
+| `gf128/inverse/optimized`  | ~280 ns  |                                    |
+| `gf128/inverse/generic`    | ~553 ns  |                                    |
 
 ---
 
-## Functions
+## Adding a New Field
 
-### Arithmetic Core
-- ✅ `add_2_32(a, b)` — XOR word by word (Algorithm 2.32)
-- ✅ `sub(a, b)` — identical to addition in characteristic 2
-- ✅ `neg(a)` — identity in characteristic 2
-- ✅ `mul_2_33(a, b)` — shift-and-add with inline reduction (Algorithm 2.33)
-- ✅ `mul_2_34(a, b)` — right-to-left comb + fast reduction (Algorithm 2.34)
-- ✅ `square_2_39(a)` — bit-expansion via lookup table + fast reduction (Algorithm 2.39)
+1. Add an `IrreduciblePoly` constant to `src/polynomials.rs`.
+2. Optionally add polynomial-specific optimizations under `src/fields/`.
+3. Create a config in `src/ark/configs/`:
 
-### Reduction
-- ✅ `reduce_2_40(c)` — general bit-at-a-time reduction (Algorithm 2.40)
-- ✅ `reduce_2_41(c)` — word-at-a-time reduction specialized for W=64 (Algorithm 2.41)
+```rust
+pub struct Gf64Config;
 
-### Inversion
-- ✅ `invert_2_48(a)` — EEA over GF(2)[x], left-to-right (Algorithm 2.48)
-- ✅ `invert_2_49(a)` — binary GCD, right-to-left (Algorithm 2.49)
+impl Gf64Config {
+    pub const POLY: IrreduciblePoly = polynomials::GF64;
+}
 
-### Field Structure
-- ✅ `zero()` — additive identity
-- ✅ `one()` — multiplicative identity
-- ✅ `is_zero(a)` — true if `a` is the zero element
+impl BinaryFieldConfig<1> for Gf64Config {
+    const ALPHA_POW_M: [u64; 1] = [polynomials::GF64.alpha_pow_m[0]];
+    const ZERO: BinaryField<Self, 1> = BinaryField([0u64; 1], core::marker::PhantomData);
+    const ONE:  BinaryField<Self, 1> = BinaryField([1u64],    core::marker::PhantomData);
+    // Override mul_assign / square_in_place / inverse for optimized variants.
+}
 
-### Exponentiation
-- ✅ `pow_rtl_2_34_2_39(a, n)` — right-to-left binary, uses `mul_2_34` + `square_2_39`
+pub type Gf64 = BinaryField<Gf64Config, 1>;
+```
 
-### Utilities
-- ✅ `from_u64(val)` — construct a field element from a raw integer
-- ✅ `to_words(a)` — extract the raw `[u64; 2]` representation
+4. Re-export from `src/ark/configs/mod.rs` and `src/ark/mod.rs`.
 
+---
+
+## Reference
+
+Hankerson, D., Menezes, A., Vanstone, S.
+*Guide to Elliptic Curve Cryptography*, Chapter 2.3 — Binary Field Arithmetic.
+Springer, 2004.
