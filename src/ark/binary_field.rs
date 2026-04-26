@@ -552,6 +552,7 @@ impl<P: BinaryFieldConfig<N>, const N: usize> Field for BinaryField<P, N> {
     // sqrt in GF(2^m) always exists; we override the method instead of using SQRT_PRECOMP.
     const SQRT_PRECOMP: Option<SqrtPrecomputation<Self>> = None;
     const ONE: Self = P::ONE;
+    const NEG_ONE: Self = P::ONE; // -1 = 1 in characteristic 2
 
     fn extension_degree() -> u64 { P::DEGREE as u64 }
 

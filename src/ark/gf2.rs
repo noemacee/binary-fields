@@ -18,6 +18,7 @@ impl FpConfig<1> for Gf2Config {
 
     const ZERO: Fp<Self, 1> = Fp(BigInt([0u64]), PhantomData);
     const ONE:  Fp<Self, 1> = Fp(BigInt([1u64]), PhantomData);
+    const NEG_ONE: Fp<Self, 1> = Fp(BigInt([1u64]), PhantomData); // -1 = 1 in characteristic 2
 
     /// The multiplicative group GF(2)* = {1} is trivial; its only generator is 1.
     const GENERATOR: Fp<Self, 1> = Fp(BigInt([1u64]), PhantomData);
@@ -96,7 +97,7 @@ impl FpConfig<1> for Gf2Config {
 }
 
 /// GF(2) as an arkworks `PrimeField`.
-pub type Gf2 = Fp<Gf2Config, 1>;
+pub type Gf2 = Fp<Gf2Config, 1>; 
 
 #[cfg(test)]
 mod tests {

@@ -3,13 +3,17 @@ name = "binary-fields"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+hekate = ["dep:hekate-math"]
+
 [dependencies]
 criterion = "0.5"
-ark-ff = "0.5"
-ark-serialize = "0.5"
+ark-ff = { path = "../arkworks/algebra/ff" }
+ark-serialize = { path = "../arkworks/algebra/serialize" }
 ark-std = "0.5"
 zeroize = "1"
 num-bigint = "0.4"
+hekate-math = { path = "../hekate-math", optional = true }
 
 [[bench]]
 name = "field_ops"
