@@ -66,6 +66,15 @@ mod tests {
     use ark_ff::{Field, One, Zero};
     use ark_std::UniformRand;
 
+    // SmallFp::new converts actual field values to Montgomery form internally.
+    fn fp(x: u32) -> BabyBear { SmallFp::new(x) }
+    fn ext2(c0: u32, c1: u32) -> BabyBearExt2 { BabyBearExt2::new(fp(c0), fp(c1)) }
+    fn ext4(a0: u32, a1: u32, b0: u32, b1: u32) -> BabyBearExt4 {
+        BabyBearExt4::new(ext2(a0, a1), ext2(b0, b1))
+    }
+
+    // Reference values computed independently via Python galois library (actual field values).
+
     #[test]
     fn nonresidue_is_qnr() {
         let eleven = BabyBearExt2Config::NONRESIDUE;
@@ -98,6 +107,24 @@ mod tests {
     }
 
     #[test]
+    fn ext2_known_vectors() {
+        // Python galois: GF(2013265921^2, x^2 - 11), element = c0 + c1*x
+        let cases: &[((u32,u32),(u32,u32),(u32,u32),(u32,u32),(u32,u32))] = &[
+            // (a, b, a*b, a^2, a^-1)
+            ((1804778276,882461865),(1823380466,1303846403),(888764645,283232932),(1651346491,1502787040),(1918449551,93233662)),
+            ((652660206,1977080709),(872477412,1357532441),(1254130409,343743121),(330801865,360943128),(752219132,883467310)),
+            ((1795463164,694750683),(211159283,585134930),(195343840,306542283),(769337788,1277640436),(152414028,1365467642)),
+        ];
+        for &(a,b,ab,a2,ainv) in cases {
+            let fa = ext2(a.0, a.1);
+            let fb = ext2(b.0, b.1);
+            assert_eq!(fa * fb, ext2(ab.0, ab.1), "mul mismatch");
+            assert_eq!(fa.square(), ext2(a2.0, a2.1), "square mismatch");
+            assert_eq!(fa.inverse().unwrap(), ext2(ainv.0, ainv.1), "inverse mismatch");
+        }
+    }
+
+    #[test]
     fn ext4_mul_inverse() {
         let mut rng = ark_std::test_rng();
         let a = BabyBearExt4::rand(&mut rng);
@@ -116,10 +143,46 @@ mod tests {
         let mut rng = ark_std::test_rng();
         let a = BabyBearExt4::rand(&mut rng);
         let mut b = a;
-        // Frobenius 4 times = identity on degree-4 extension
         for _ in 0..4 {
             b.frobenius_map_in_place(1);
         }
         assert_eq!(a, b);
+    }
+
+    #[test]
+    fn ext4_known_vectors() {
+        // Python galois: GF(p^4, y^4-11), tower repr (fp2_c0.c0, fp2_c0.c1, fp2_c1.c0, fp2_c1.c1)
+        // Basis: element = (c0+c2*x) + (c1+c3*x)*y  where x^2=11, y^2=x
+        let cases: &[((u32,u32,u32,u32),(u32,u32,u32,u32),(u32,u32,u32,u32),(u32,u32,u32,u32),(u32,u32,u32,u32))] = &[
+            // (a, b, a*b, a^2, a^-1)
+            (
+                (1351175553,608336906,1652885869,1257676251),
+                (563203088,1494985531,196806800,1177587890),
+                (1515297101,1580164789,674001329,1505776063),
+                (303661535,1539484767,772876596,326653598),
+                (1935570845,1256699769,59571902,980104888),
+            ),
+            (
+                (1641869219,231830436,1872526691,1379046964),
+                (1857382466,241661782,854703159,1736245966),
+                (1368841940,392004790,904677987,1721034113),
+                (578001524,264368266,279074372,1565007363),
+                (95934421,1932578482,223618845,1229294099),
+            ),
+            (
+                (538690774,1777457902,66736977,1968253536),
+                (568509383,183667247,155776591,1358682039),
+                (842834796,1534896902,1229077902,1042495550),
+                (535042214,940428058,1452624508,1256366215),
+                (872111318,1750449300,297932768,1255367450),
+            ),
+        ];
+        for &(a,b,ab,a2,ainv) in cases {
+            let fa = ext4(a.0,a.1,a.2,a.3);
+            let fb = ext4(b.0,b.1,b.2,b.3);
+            assert_eq!(fa * fb, ext4(ab.0,ab.1,ab.2,ab.3), "mul mismatch");
+            assert_eq!(fa.square(), ext4(a2.0,a2.1,a2.2,a2.3), "square mismatch");
+            assert_eq!(fa.inverse().unwrap(), ext4(ainv.0,ainv.1,ainv.2,ainv.3), "inverse mismatch");
+        }
     }
 }
