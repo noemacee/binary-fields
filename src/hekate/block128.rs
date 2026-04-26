@@ -267,6 +267,7 @@ impl Field for Block128Ark {
     type BasePrimeField = Gf2;
     const SQRT_PRECOMP: Option<SqrtPrecomputation<Self>> = None;
     const ONE: Self = Self(Block128(1));
+    const NEG_ONE: Self = Self(Block128(1)); // -1 = 1 in characteristic 2
 
     fn extension_degree() -> u64 { 128 }
 
@@ -601,6 +602,7 @@ impl Field for Block128FlatArk {
     type BasePrimeField = Gf2;
     const SQRT_PRECOMP: Option<SqrtPrecomputation<Self>> = None;
     const ONE: Self = Self(Flat::from_raw(Block128(1)));
+    const NEG_ONE: Self = Self(Flat::from_raw(Block128(1))); // -1 = 1 in characteristic 2
 
     fn extension_degree() -> u64 { 128 }
 
