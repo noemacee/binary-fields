@@ -703,13 +703,11 @@ impl Field for Block128FlatArk {
     }
 
     #[inline]
-    fn square(&self) -> Self {
-        Self::from_flat(square_128(self.0.to_tower()).to_hardware())
-    }
+    fn square(&self) -> Self { Self::from_flat(self.0 * self.0) }
 
     #[inline]
     fn square_in_place(&mut self) -> &mut Self {
-        self.0 = square_128(self.0.to_tower()).to_hardware();
+        self.0 = self.0 * self.0;
         self
     }
 
