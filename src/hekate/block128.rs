@@ -1,4 +1,57 @@
-use hekate_math::{Block128, Flat, HardwareField, TowerField};
+use hekate_math::{Block8, Block16, Block32, Block64, Block128, Flat, HardwareField, TowerField};
+
+// ── Tower squaring — 2 sub-squarings + 1 mul-by-τ, no cross term ─────────────
+//
+// In char 2, for a tower field element (a + b·x) where x² = x + τ:
+//   (a + b·x)² = a² + b²·x² = a² + b²·(x + τ) = (a² + b²·τ) + b²·x
+//
+// Cost: 2 recursive squarings + 1 mul-by-τ (constant mul at next level down),
+// vs Karatsuba general mul which costs 3 recursive muls. Savings compound across
+// the 4 tower levels: 2^4=16 base muls for squaring vs 3^4=81 for general mul.
+//
+// Block8 is the base: no public split(), so we fall back to hekate's mul table.
+// At Block16 and above, we exploit the tower structure.
+
+// Precomputed square table for GF(2^8) under hekate's tower basis.
+// Computed by squaring all 256 elements via Block8 * Block8 at compile time
+// — but Block8::mul is not const, so we use a runtime-initialized approach
+// and just call a * a inline. The tower savings start at Block16.
+
+#[inline(always)]
+fn square_8(a: Block8) -> Block8 { a * a }
+
+#[inline(always)]
+fn square_16(a: Block16) -> Block16 {
+    let (lo, hi) = a.split();
+    let lo2 = square_8(lo);
+    let hi2 = square_8(hi);
+    // lo2 + hi2 * τ,  hi2
+    Block16::new(lo2 + hi2 * Block8::EXTENSION_TAU, hi2)
+}
+
+#[inline(always)]
+fn square_32(a: Block32) -> Block32 {
+    let (lo, hi) = a.split();
+    let lo2 = square_16(lo);
+    let hi2 = square_16(hi);
+    Block32::new(lo2 + hi2 * Block16::TAU, hi2)
+}
+
+#[inline(always)]
+fn square_64(a: Block64) -> Block64 {
+    let (lo, hi) = a.split();
+    let lo2 = square_32(lo);
+    let hi2 = square_32(hi);
+    Block64::new(lo2 + hi2 * Block32::TAU, hi2)
+}
+
+#[inline(always)]
+pub(crate) fn square_128(a: Block128) -> Block128 {
+    let (lo, hi) = a.split();
+    let lo2 = square_64(lo);
+    let hi2 = square_64(hi);
+    Block128::new(lo2 + hi2 * Block64::TAU, hi2)
+}
 use crate::ark::Gf2;
 use ark_ff::{AdditiveGroup, Field, LegendreSymbol, SqrtPrecomputation, One, Zero};
 use ark_serialize::{
@@ -316,11 +369,11 @@ impl Field for Block128Ark {
     }
 
     #[inline]
-    fn square(&self) -> Self { Self(self.0 * self.0) }
+    fn square(&self) -> Self { Self(square_128(self.0)) }
 
     #[inline]
     fn square_in_place(&mut self) -> &mut Self {
-        self.0 = self.0 * self.0;
+        self.0 = square_128(self.0);
         self
     }
 
@@ -650,11 +703,13 @@ impl Field for Block128FlatArk {
     }
 
     #[inline]
-    fn square(&self) -> Self { Self::from_flat(self.0 * self.0) }
+    fn square(&self) -> Self {
+        Self::from_flat(square_128(self.0.to_tower()).to_hardware())
+    }
 
     #[inline]
     fn square_in_place(&mut self) -> &mut Self {
-        self.0 = self.0 * self.0;
+        self.0 = square_128(self.0.to_tower()).to_hardware();
         self
     }
 
