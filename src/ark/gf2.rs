@@ -29,15 +29,9 @@ impl FpConfig<1> for Gf2Config {
     /// The unique 2^0 = 1st root of unity is 1.
     const TWO_ADIC_ROOT_OF_UNITY: Fp<Self, 1> = Fp(BigInt([1u64]), PhantomData);
 
-    /// Use Tonelli-Shanks with two_adicity = 0.
-    /// For GF(2) the outer loop never executes (both elements are squares),
-    /// so `quadratic_nonresidue_to_trace` is never read.
+    /// In GF(2), x² = x for all x, so sqrt is the identity.
     const SQRT_PRECOMP: Option<SqrtPrecomputation<Fp<Self, 1>>> =
-        Some(SqrtPrecomputation::TonelliShanks {
-            two_adicity: 0,
-            quadratic_nonresidue_to_trace: Fp(BigInt([1u64]), PhantomData),
-            trace_of_modulus_minus_one_div_two: &[],
-        });
+        Some(SqrtPrecomputation::CharTwo);
 
     /// Addition = XOR in characteristic 2.
     fn add_assign(a: &mut Fp<Self, 1>, b: &Fp<Self, 1>) {

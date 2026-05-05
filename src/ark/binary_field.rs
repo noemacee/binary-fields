@@ -91,6 +91,16 @@ pub trait BinaryFieldConfig<const N: usize>: Send + Sync + 'static + Sized {
         debug_assert!(N == 0 || Self::DEGREE > (N - 1) * 64, "DEGREE fits in fewer limbs than N");
         crate::generic::invert::invert_2_48(a, &Self::ALPHA_POW_M, Self::DEGREE)
     }
+
+    /// Apply the Frobenius automorphism `power` times: a → a^(2^power).
+    ///
+    /// The default applies `square_in_place` repeatedly.  Override with a
+    /// precomputed Frobenius matrix for O(m²/64) cost instead of O(power·sq).
+    fn frobenius_map_in_place(a: &mut [u64; N], power: usize) {
+        for _ in 0..power {
+            Self::square_in_place(a);
+        }
+    }
 }
 
 // ─── BinaryField struct ───────────────────────────────────────────────────────
@@ -669,11 +679,7 @@ impl<P: BinaryFieldConfig<N>, const N: usize> Field for BinaryField<P, N> {
     }
 
     fn frobenius_map_in_place(&mut self, power: usize) {
-        // In GF(2^m), the Frobenius automorphism is x → x^2.
-        // Applying it `power` times gives x → x^(2^power).
-        for _ in 0..power {
-            P::square_in_place(&mut self.0);
-        }
+        P::frobenius_map_in_place(&mut self.0, power);
     }
 
     fn mul_by_base_prime_field(&self, elem: &Gf2) -> Self {
